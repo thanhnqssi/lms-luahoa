@@ -2479,7 +2479,7 @@
         </div>
         <div class="form-group">
           <label class="form-label">Email học viên (Mỗi dòng 1 email hoặc cách nhau dấu phẩy)</label>
-          <textarea class="form-input" id="studentEmails" rows="5" required
+          <textarea class="form-input" id="listEmails" rows="5" required
             placeholder="nguyenva@gmail.com, tranvb@gmail.com..."></textarea>
         </div>
         <button type="submit" class="form-btn">THÊM HỌC VIÊN</button>
@@ -2527,7 +2527,7 @@
   <script>
     // ========== CẤU HÌNH API - THAY ĐỔI URL NÀY ==========
     // ========== CẤU HÌNH API - THAY ĐỔI URL NÀY ==========
-    const API_URL = 'https://script.google.com/macros/s/AKfycbwZb_cEVoUxx33UmAoKk-PtoOqxVGvLRhhDKbZ8_RkKYA9AAaJUFPGOjbnYlGDUmAaQkQ/exec';
+    const API_URL = 'https://script.google.com/macros/s/AKfycbypp1thCzYNOmdFQI7zBtGBb5NmYHpLTqZvlSu2hdst7Exb9e0TnXD6H3mm5gaduJ2XWQ/exec';
 
     // Helper: Escape HTML (Fix for blank report)
     function escapeHtml(text) {
@@ -3078,7 +3078,31 @@
                   </tr>
                </thead>
                <tbody>
-                  ${users.map(u => `
+                  ${users.map(u => {
+        // Logic Status Color
+        let statusClass = 'status-inactive'; // Default grey/yellow
+        let statusLabel = u.status;
+
+        if (u.status === 'Approve') {
+          statusClass = 'status-active'; // Green
+        } else if (u.status === 'Locked') {
+          statusClass = 'status-locked'; // Red (Need CSS or Inline Style)
+        } else {
+          statusLabel = 'Pending';
+        }
+
+        // Button Logic
+        let actionBtn = '';
+        if (u.status === 'Approve') {
+          actionBtn = `<button class="btn-sm" onclick="toggleLockUser('${u.email}', 'Approve')" style="color:#f44336;border-color:#f4433633">🔒 Lock</button>`;
+        } else if (u.status === 'Locked') {
+          actionBtn = `<button class="btn-sm" onclick="toggleLockUser('${u.email}', 'Locked')" style="color:#4caf50;border-color:#4caf5033">🔓 Unlock</button>`;
+        } else {
+          // Pending -> Approve
+          actionBtn = `<button class="btn-sm" onclick="toggleLockUser('${u.email}', 'Pending')" style="color:#22c55e;border-color:#22c55e33">✅ Approve</button>`;
+        }
+
+        return `
                     <tr class="user-row">
                        <td style="display:flex;align-items:center;gap:12px">
                           <div class="profile-avatar" style="width:32px;height:32px;font-size:12px;border-width:1px">${String(u.name || '').charAt(0)}</div>
@@ -3088,16 +3112,18 @@
                        <td class="u-phone">${escapeHtml(u.phone)}</td>
                        <td>${escapeHtml(u.role)}</td>
                        <td>
-                          <span class="status-badge ${u.status === 'Locked' ? 'status-inactive' : 'status-active'}">${u.status}</span>
+                          <span class="status-badge ${statusClass}" 
+                                style="${u.status === 'Locked' ? 'background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.2)' : ''}">
+                             ${statusLabel}
+                          </span>
                        </td>
                        <td style="display:flex;gap:8px">
                           <button class="btn-sm" onclick="viewUserProfile('${u.email}')">👁️ View</button>
-                          <button class="btn-sm" onclick="toggleLockUser('${u.email}', '${u.status}')" style="color:${u.status === 'Locked' ? '#4caf50' : '#f44336'}">
-                             ${u.status === 'Locked' ? '🔓 Unlock' : '🔒 Lock'}
-                          </button>
+                          ${actionBtn}
                        </td>
                     </tr>
-                  `).join('')}
+                  `;
+      }).join('')}
                </tbody>
             </table>
          </div>
@@ -3188,14 +3214,27 @@
     }
 
     async function toggleLockUser(email, currentStatus) {
-      const newStatus = currentStatus === 'Locked' ? 'Active' : 'Locked';
-      if (!confirm(`Are you sure you want to ${newStatus} this user?`)) return;
+      let newStatus = 'Approve';
+      let actionText = 'Unlock';
+
+      if (currentStatus === 'Approve') {
+        newStatus = 'Locked';
+        actionText = 'Lock';
+      } else if (currentStatus === 'Pending') {
+        newStatus = 'Approve'; // Approve
+        actionText = 'Approve';
+      }
+
+      if (!confirm(`Are you sure you want to ${actionText} this user?`)) return;
 
       showToast('Updating status...', 'info');
+
+      // Call API
       const res = await callAPI('updateStudentStatus', { email, status: newStatus });
+
       if (res.success) {
         showToast('Updated successfully!', 'success');
-        loadAdminUsers(); // Reload table
+        loadAdminUsers(true); // Force Reload
       } else {
         showToast(res.message, 'error');
       }
@@ -4329,6 +4368,11 @@
       }
     }
 
+    async function loadAutoReminderSettings() {
+      // Stub function to prevent ReferenceError if Email Marketing module is not fully loaded
+      console.log('🔍 loadAutoReminderSettings called (stub)');
+    }
+
     async function handleToggleAutoReminder(el) {
       const isActive = el.checked;
       showToast(isActive ? 'Enabling automation...' : 'Disabling automation...', 'info');
@@ -4381,25 +4425,26 @@
 
     async function callAPI(action, data = {}) {
       try {
-        const formData = new URLSearchParams();
-        formData.append('action', action);
+        // ✅ Standardized JSON payload
+        const payload = {
+          action: action,
+          data: data
+        };
 
-        // Flatten data object thành form fields
-        for (const key in data) {
-          if (typeof data[key] === 'object' && data[key] !== null) {
-            formData.append(key, JSON.stringify(data[key]));
-          } else {
-            formData.append(key, data[key]);
-          }
-        }
-
+        // ✅ Use 'text/plain' to avoid CORS preflight (OPTIONS request)
+        // This is a reliable pattern for Google Apps Script Web Apps
         const response = await fetch(API_URL, {
           method: 'POST',
-          body: formData  // ← FormData, không phải JSON
+          mode: 'cors',
+          headers: {
+            'Content-Type': 'text/plain'
+          },
+          body: JSON.stringify(payload)
         });
 
         if (!response.ok) {
-          throw new Error('Network response was not ok');
+          const errorText = await response.text();
+          throw new Error(`API Error (${response.status}): ${errorText}`);
         }
 
         return await response.json();
@@ -7813,6 +7858,5 @@
 
   </script>
 </body>
-
 
 </html>
